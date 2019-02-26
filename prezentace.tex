@@ -1,0 +1,279 @@
+\documentclass[10pt,xcolor=pdflatex]{beamer}
+\usepackage{newcent}
+\usepackage[utf8]{inputenc}
+\usepackage[czech]{babel}
+\usepackage{hyperref}
+\usepackage{fancyvrb}
+\usepackage{hyperref}
+\usepackage[font={small,it}]{caption}
+\usepackage{listings}
+%\usetheme[]{FIT}
+\usetheme[CZlogo]{FIT} % CZ logo
+
+\lstdefinestyle{customc}{
+  belowcaptionskip=1\baselineskip,
+  breaklines=true,
+  frame=single,
+  xleftmargin=\parindent,
+  language=C,
+  showstringspaces=false,
+  basicstyle=\footnotesize\ttfamily,
+  keywordstyle=\bfseries\color{green!40!black},
+  commentstyle=\itshape\color{purple!40!black},
+  identifierstyle=\color{blue},
+  stringstyle=\color{orange},
+}
+
+\lstdefinestyle{customasm}{
+  belowcaptionskip=1\baselineskip,
+  frame=L,
+  xleftmargin=\parindent,
+  language=[x86masm]Assembler,
+  basicstyle=\footnotesize\ttfamily,
+  commentstyle=\itshape\color{purple!40!black},
+}
+
+\lstset{escapechar=@,style=customc}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\usepackage{filecontents}
+
+\title[Optimalizace softwarového zpracování CRC]{Optimalizace softwarového zpracování CRC}
+
+\author[]{Jiří Matějka}
+
+% CZ verzia
+\institute[]{Vysoké učení technické v Brně, Fakulta informačních technologií\\
+Božetěchova 1/2 612 66 Brno\\
+xmatej52@stud.fit.vutbr.cz}
+
+
+%\date{14. 6. 2018}
+\date{\today}\usepackage[font={small,it}]{caption}
+%\date{} % bez data
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\begin{document}
+
+\frame[plain]{\titlepage}
+\begin{frame}
+  \frametitle{Cyklický redundantní součet}
+  \begin{itemize}
+      \item Jeden z nejčastěji používaných algoritmů pro detekci chyb přenosu dat
+      \item Hardwarové i softwarové implementace
+      \item Slabá pro odhalení záměrné změny dat (není schopen odhalit všechny chyby)
+      \item Při náhodné změně vstupní posloupnosti roste pravděpodobnost odhalení chyby spolu s šířkou klíče (dělitele)
+      \item Používá se ve spoustě komunikačních protokolů (Ethernet, asynchronous transfer mode, ...)
+  \end{itemize}
+\end{frame}
+
+\begin{frame}
+  \frametitle{Princip výpočtu odesílané zprávy}
+  Nechť $M$ je zpráva, kterou je třeba odeslat. $C$ je dělitel o délce $c$ bitů,
+  kde první a poslední bit má hodnotu 1. Potom algoritmus výpočtu odesílané zprávy
+  bude následující:
+  \begin{enumerate}
+      \item Na konec zprávy M přidej $c - 1$ nul.
+      \item Výsledek vyděl dělitelem $C$ ve zbytkové třídě $2$
+      \item Zbytkem po dělení označme $R$, které je $c - 1$ dlouhé
+      \item Na konec zprávy M přidej $R$ (namísto přidaných nul) a výsledek odešli příjemci
+  \end{enumerate}
+  
+  Nechť $M'$ je zpráva, kterou obdrží příjemce. \\
+  Pokud $Y \mod C = 0$, potom
+  příjemce předpokládá, že přijatá zpráva neobsahuje chyby (ne vždy to ale musí být pravda).
+\end{frame}
+
+\begin{frame}
+    \frametitle{Hardwarová implementace}
+    \begin{itemize}
+        \item Založena na posuvných registrech a XOR operacích
+        \item Polynom je reprezentován sekvencí binárních hodnot v registrech
+    \end{itemize}
+    \begin{figure}
+        \includegraphics[width=\linewidth]{img/crc16_hw.png}
+        \caption{ 16 bitová CRC s využitím LFSR (Posuvný registr s lineární zpětnou vazbou) }
+        \caption{ Zdroj: \url{https://www.intel.com/content/dam/www/programmable/us/en/pdfs/literature/an/an049_01.pdf} }
+    \end{figure}
+\end{frame}
+
+\begin{frame}
+    \frametitle{Softwarové implementace}
+    Algoritmus založený na principu posuvného registru:
+    \begin{itemize}
+        \item Jednoduché řešení
+        \item Opakuje cyklus pro každý bit dat
+        \item Pomalé
+    \end{itemize}
+    Algoritmus s předvypočítanou tabulkou (Table-driven CRC Calculation):
+    \begin{itemize}
+        \item O něco složitější řešení
+        \item Před prvním výpočtem je třeba inicializovat tabulku
+        \item Opakuje cyklus pro každý byte dat
+        \item Mnohem rychlejší, ale stále pomalejší než HW řešení
+    \end{itemize}
+\end{frame}
+
+\begin{frame}
+    \frametitle{Optimalizace výpočtu - CRC4}
+    Pro jednoduchost budeme pracovat s crc4 a polynomem $C = x^4 + x + 1$.
+    \begin{figure}
+        \includegraphics[width=0.66 \linewidth]{img/crc4_hw.png}
+        \\ Zdroj: \url{https://ieeexplore.ieee.org/document/6987839}
+    \end{figure}
+\end{frame}
+
+\begin{frame}
+    \frametitle{Sekvenčí algoritmus CRC4}
+    Algoritmus implementující následující CRC4 s využitím tabulky bude vypadat
+    následovně:
+    \lstinputlisting{src/crc4.c}
+\end{frame}
+
+\begin{frame}
+    \frametitle{Vzorce}
+    Rozdělme si zprávu na jednotlivé bity. Každý bit označme jako $d_n$ kde $n$ je pořadí bitu.
+    Hodnotu v jednotlivých registrech označme jako $x_{n,t}$, kde $n$ je pořadí registru a
+    $t$ je pořadí prováděného cyklu. Výsledek každého cyklu může být potom reprezentován jako:
+
+    \begin{align}
+        x_{0,t+1}&=x_{1,t} \nonumber \\
+        x_{1,t+1}&=x_{2,t} \nonumber \\
+        x_{2,t+1}&=x_{3,t} \oplus x_{0,t}\oplus d_{t} \nonumber \\
+        x_{3,t+1}&=x_{0,t} \oplus d_{t} \nonumber
+    \end{align}
+\end{frame}
+
+\begin{frame}
+    \frametitle{Výsledeky jednotlivých cyklů}
+    \begin{figure}
+        \includegraphics[width=0.66 \linewidth]{img/crc4_cycle_result.png}
+        \\ Zdroj: \url{https://ieeexplore.ieee.org/document/6987839}
+    \end{figure}
+\end{frame}
+
+\begin{frame}
+    \frametitle{Clock 3 - výsledek}
+    Poslední řádek tabulky, Clock 3, reprezentuje výsledek.
+    Nechť $y_n=x_{n,0} \oplus d_n$, potom nám po dosazení do
+    Clock 3 vyjde:
+    \begin{align}
+        x_{0,4}&=y_0 \oplus y_1 \nonumber \\
+        x_{1,4}&=y_1 \oplus y_2 \nonumber \\
+        x_{2,4}&=y_3 \oplus y_2 \oplus y_0 \nonumber \\
+        x_{3,4}&=y_3 \oplus y_0 \nonumber
+    \end{align}
+\end{frame}
+
+\begin{frame}
+    \frametitle{Optimalizace}
+    V softwarové implementaci CRC známe všechny bity dat ($d_{0..3}$) a známe
+    všechny bity akumulátoru ($d_{0..3,0}$). Můžeme tedy položit
+    před samotným výpočtem programu $x = x \oplus d$. Vznikne následující
+    implementace algoritmu:
+    \lstinputlisting{src/crc4_opt1.c}
+\end{frame}
+
+\begin{frame}
+    \frametitle{Výsledky}
+    Čeho bylo touto modifikací dosaženo?
+    \begin{itemize}
+        \item Optimalizace algoritmu využívající tabulku
+        \item Na 32 bitovém procesoru zpracovávo najednou 32 bitů dat
+        \item Maximální délka dělícího polynomu je 32 bitů
+        \item Ušetření 3 instrukcí za každých 32 bitů dat
+    \end{itemize}
+\end{frame}
+
+\begin{frame}
+    \frametitle{Další experimentování}
+    Rovnici přepíšeme do tabulky:
+    \begin{table}[]
+        \begin{tabular}{lllll}
+            $y_3$ & $y_3$ & $y_1$ & $y_0$ &  \\
+            $y_0$ & $y_2$ & $y_2$ & $y_1$ &  \\
+                  & $y_0$ &       &       &  \\
+        \end{tabular}
+    \end{table}
+    Ve sloupcích popřeházíme některé řádky:
+    \begin{table}[]
+        \begin{tabular}{lllll}
+            $y_3$ & $y_2$ & $y_1$ & $y_0$ &  \\
+            $y_0$ &       &       &       &  \\
+                  & $y_3$ & $y_2$ & $y_1$ &  \\
+                  & $y_0$ &       &       &  
+        \end{tabular}
+    \end{table}
+    Nechť $z_n = y_n \oplus y_{n-3} = y_n \oplus (y_n << 3)$:
+    \begin{table}[]
+        \begin{tabular}{lllll}
+            $z_3$ & $z_2$ & $z_1$ & $z_0$ &  \\
+                  & $z_3$ & $z_2$ & $z_1$ &
+        \end{tabular}
+    \end{table}
+    Výsledkem potom bude $z =z \oplus (z >> 1)$
+\end{frame}
+\begin{frame}[fragile]
+    \frametitle{Efektivní algoritmus bez využtí tabulky}
+    Výše uvedený algoritmus je tak jednoduchý, že ho lze přepsat na pár řádků v assembleru.
+\begin{verbatim}
+// https://ieeexplore.ieee.org/document/6987839
+eor rO, r1          // y = x ^ d
+eor rO, rO, lsl #3  // z = y ^ ( y << 3 )
+and rO, #OxF        // z = z & 0xF
+eor rO, rO, lsr #1  // crc = z ^ ( z >> 1 )
+\end{verbatim}
+\end{frame}
+
+\begin{frame}
+    \frametitle{Čeho bylo dosaženu}
+    \begin{itemize}
+        \item Algoritmus pro CRC4 byl výrazně zoptimalizován
+        \item Vzorce pro delší šířku klíčů jsou generováný programy v Lispu
+        \begin{itemize}
+              \item Model úspěšně aplikován na Ethernet CRC--32
+              \item V některých dalších případech chybí buď výpočetní výkon nebo metoda není efektivnější než algoritmus s využitím tabulky
+        \end{itemize}
+    \end{itemize}
+\end{frame}
+
+\begin{frame}
+    \frametitle{Porovnání jednotlivých implementací}
+    Uvedené hodnoty byly naměřeny na stejném stroji a reprezentují
+    počet nanosekund potřebných na zpracování jednoho bytu.
+    Algoritmy byly implementovány v C\texttt{++} a spuštěny na
+    Samsung Chromebook s $1.7$ GHz ARM Cortex--A15 CPU s OS Chrubuntu $12.04$ Linux.
+    Každá hodnota byla měřena $100\times$ a byl vybrán vždy ten nejkratší čas. Pro výpočet
+    CRC byla použita náhodně generovaná zpráva o délce 65536 bytů.
+    \begin{table}[]
+        \begin{tabular}{llllll}
+                  & Serial  & Table1 & Table2 & Parralel & \\
+            CRC16 & $22.35$ & $5.29$ & $4.85$ & $2.06$   & \\
+            CRC32 & $21.55$ & $5.29$ & $4.85$ & $3.16$   &
+        \end{tabular}
+    \end{table}
+\end{frame}
+
+\begin{frame}
+    \frametitle{Literatura}
+    \begin{itemize}
+        \item J. R. Engdahl and D. Chung, Fast parallel CRC implementation in software [online], Soul: Automation and Systems (ICCAS 2014). 2014, Dostupné z \url{https://ieeexplore.ieee.org/document/6987839 }
+        \item Altera Corporation, Implementing CRCCs in Altera Devices [online], San Francisko: Altera Corporation. 2005, Dostupné z: \url{https://www.intel.com/content/dam/www/programmable/us/en/pdfs/literature/an/an049_01.pdf}
+        \item Norman Matloff, Cyclic Redundancy Checking [online], University of California: University of Californi -- department of Computer Science, dostupné z: \url{http://heather.cs.ucdavis.edu/~matloff/Networks/CRC/Old/ErrChkCorr.NEW.tex}
+        
+    \end{itemize}
+\end{frame}
+
+\begin{frame}
+    \frametitle{Bonus 1}
+    \lstinputlisting{src/crc16_no_table.c}
+\end{frame}
+
+\begin{frame}
+    \frametitle{Bonus 2}
+    \lstinputlisting{src/crc16.c}
+\end{frame}
+
+\end{document}
